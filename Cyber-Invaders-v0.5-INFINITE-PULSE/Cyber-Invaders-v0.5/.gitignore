@@ -1,0 +1,25 @@
+node_modules
+dist
+dist-ssr
+coverage
+*.local
+.env
+.env.*
+logs
+*.log
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+
+# Música privada/personal. El juego carga audio desde el navegador (IndexedDB).
+apps/web/public/music/*
+!apps/web/public/music/README.md
+*.mp3
+*.flac
+*.m4a
+*.aac
+*.ogg
+*.wav

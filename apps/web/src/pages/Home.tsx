@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { BookOpen, Gamepad2, Presentation, Shield } from 'lucide-react'
+import { BookOpen, Gamepad2, Presentation, Rocket, Shield } from 'lucide-react'
 import styles from './Home.module.css'
 
 export default function Home() {
@@ -40,14 +40,31 @@ export default function Home() {
             <Gamepad2 size={32} />
           </div>
           <div className={styles.cardContent}>
-            <h2 className={styles.cardTitle}>Juego: Tríada CIA</h2>
+            <h2 className={styles.cardTitle}>Quiz: Tríada CIA</h2>
             <p className={styles.cardDescription}>
-              Pon a prueba tus conocimientos con un juego interactivo sobre los tres pilares de la
+              Pon a prueba tus conocimientos con un quiz interactivo sobre los tres pilares de la
               tríada CIA.
             </p>
             <div className={styles.cardFooter}>
-              <span className={styles.cardLinkText}>Jugar ahora</span>
+              <span className={styles.cardLinkText}>Jugar quiz</span>
               <Gamepad2 size={18} />
+            </div>
+          </div>
+        </Link>
+
+        <Link to="/juego/cyber-invaders" className={styles.card}>
+          <div className={styles.cardIcon}>
+            <Rocket size={32} />
+          </div>
+          <div className={styles.cardContent}>
+            <h2 className={styles.cardTitle}>Cyber Invaders: Infinite Pulse</h2>
+            <p className={styles.cardDescription}>
+              Arcade tipo Space Invaders con temática de la Tríada CIA. Modo Historia e Infinito, jefe
+              Tux, música local y análisis CIA en tiempo real.
+            </p>
+            <div className={styles.cardFooter}>
+              <span className={styles.cardLinkText}>Jugar Cyber Invaders</span>
+              <Rocket size={18} />
             </div>
           </div>
         </Link>
