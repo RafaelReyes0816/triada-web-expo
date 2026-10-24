@@ -1,0 +1,310 @@
+.gameContainer {
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #0f172a, #020617);
+  color: white;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+
+.gameHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.2rem 2rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(10px);
+}
+
+.backLink {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: white;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.progressInfo {
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.pillarLegend {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+  opacity: 0.8;
+}
+
+.gameMain {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+}
+
+.questionCard {
+  width: 100%;
+  max-width: 860px;
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 20px;
+  box-shadow: 0 60px 90px -60px rgba(59, 130, 246, 0.7);
+  overflow: hidden;
+}
+
+.questionLabel {
+  display: inline-block;
+  margin: 2rem 2rem 1rem 2rem;
+  padding: 0.4rem 1rem;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.3);
+  border: 1px solid rgba(96, 165, 250, 0.7);
+  font-weight: 600;
+}
+
+.scenarioText {
+  margin: 0 2rem 2rem 2rem;
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  line-height: 1.8;
+  font-weight: 600;
+}
+
+.optionsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  padding: 0 2rem 2rem 2rem;
+}
+
+.optionCard {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  text-align: left;
+  background: rgba(15, 23, 42, 0.8);
+  border: 2px solid rgba(148, 163, 184, 0.4);
+  color: white;
+  border-radius: 14px;
+  padding: 1rem 1.4rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.optionCard:hover:not(:disabled) {
+  border-color: rgba(96, 165, 250, 0.9);
+  background: rgba(30, 58, 138, 0.4);
+}
+
+.optionCard:disabled {
+  cursor: not-allowed;
+}
+
+.optionSelected {
+  border-color: rgba(96, 165, 250, 0.9);
+  background: rgba(37, 99, 235, 0.35);
+}
+
+.optionCorrect {
+  border-color: rgba(52, 211, 153, 0.9);
+  background: rgba(16, 185, 129, 0.25);
+}
+
+.optionWrong {
+  border-color: rgba(248, 113, 113, 0.9);
+  background: rgba(239, 68, 68, 0.25);
+}
+
+.optionHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.optionLetter {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(59, 130, 246, 0.4);
+  font-weight: 700;
+}
+
+.optionName {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.statusIcon {
+  flex-shrink: 0;
+}
+
+.feedbackBox {
+  margin: 0 2rem 2rem 2rem;
+  padding: 1.6rem 2rem;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.feedbackCorrect {
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.25) 0%, rgba(15, 23, 42, 0.9) 100%);
+  border: 1px solid rgba(52, 211, 153, 0.8);
+}
+
+.feedbackWrong {
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.25) 0%, rgba(15, 23, 42, 0.9) 100%);
+  border: 1px solid rgba(248, 113, 113, 0.8);
+}
+
+.feedbackHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.feedbackText {
+  margin: 0;
+  line-height: 1.8;
+  opacity: 0.9;
+}
+
+.nextQuestionBtn {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: white;
+  color: #0f172a;
+  border: none;
+  padding: 0.7rem 1.6rem;
+  border-radius: 999px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.resultCard {
+  width: 100%;
+  max-width: 520px;
+  margin: auto;
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 22px;
+  text-align: center;
+  padding: 3rem 2.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  box-shadow: 0 70px 100px -60px rgba(59, 130, 246, 0.8);
+}
+
+.resultHeader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.resultHeader h1 {
+  margin: 0;
+  font-size: 2.6rem;
+}
+
+.scoreDisplay {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.scoreNumber {
+  font-size: 5rem;
+  font-weight: 800;
+}
+
+.scoreTotal {
+  font-size: 2.4rem;
+  opacity: 0.7;
+}
+
+.resultMessage {
+  margin: 0;
+  font-size: 1.1rem;
+  line-height: 1.9;
+  opacity: 0.9;
+}
+
+.resultActions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  width: 100%;
+}
+
+.actionBtnPrimary,
+.actionBtnSecondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0.9rem 1.6rem;
+  border-radius: 999px;
+  font-weight: 700;
+  text-decoration: none;
+  font-family: inherit;
+  border: none;
+  cursor: pointer;
+}
+
+.actionBtnPrimary {
+  background: linear-gradient(90deg, #2563eb 0%, #3b82f6 100%);
+  color: white;
+}
+
+.actionBtnSecondary {
+  background: transparent;
+  color: white;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+}
+
+@media (max-width: 720px) {
+  .gameHeader {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .scenarioText,
+  .questionLabel,
+  .optionsGrid,
+  .feedbackBox {
+    margin-left: 1.2rem;
+    margin-right: 1.2rem;
+  }
+
+  .optionsGrid {
+    padding-left: 1.2rem;
+    padding-right: 1.2rem;
+  }
+
+  .resultCard {
+    margin: 1.5rem;
+    padding: 2.2rem 1.8rem;
+  }
+}
