@@ -1,5 +1,7 @@
+/* eslint-disable react-hooks/immutability -- Canvas game state is intentionally mutated inside one ref. */
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import './App.css'
+import { useNavigate } from 'react-router-dom'
+import { useBestScore, usePersistentState } from './hooks/usePersistentState'
 import { MusicEngine, TRACK_SLOTS, type TrackKey } from './music/engine'
 import { loadTracks, saveTrack, deleteTrack } from './music/storage'
 
@@ -303,11 +305,12 @@ function drawGame(ctx: CanvasRenderingContext2D, g: Game, now: number) {
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const shellRef = useRef<HTMLDivElement>(null)
-  const gameRef = useRef<Game>(freshGame())
-  const [view, setView] = useState<Snapshot>(() => snapshot(gameRef.current))
+  const gameRef = useRef<Game>(null as unknown as Game)
+  if (gameRef.current == null) gameRef.current = freshGame()
+  const [view, setView] = useState<Snapshot>(() => snapshot(freshGame()))
   const [soundOn, setSoundOn] = useState(false)
   const engineRef = useRef<MusicEngine | null>(null)
-  if (!engineRef.current) engineRef.current = new MusicEngine()
+  if (engineRef.current == null) engineRef.current = new MusicEngine()
   const [musicNames, setMusicNames] = useState<Partial<Record<TrackKey, string>>>({})
   const [musicPlaying, setMusicPlaying] = useState(false)
   const [musicVolume, setMusicVolume] = useState(.45)
@@ -322,9 +325,24 @@ function App() {
   const userStoppedMusicRef = useRef(false)
   const [activeMusic, setActiveMusic] = useState<TrackKey | null>(null)
   const [showReport, setShowReport] = useState(false)
+  const [pendingAction, setPendingAction] = useState<
+    { type: 'start'; skipToBoss: boolean; mode: GameMode } | { type: 'exit' } | null
+  >(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [bestScore, saveBestScore] = useBestScore('triada:cyber:mejor-puntaje')
+  const [lastMode, setLastMode] = usePersistentState<GameMode>('triada:cyber:ultimo-modo', 'story')
+  const navigate = useNavigate()
   const soundRef = useRef(false)
   const audioRef = useRef<AudioContext | null>(null)
   const [apiConnected, setApiConnected] = useState(false)
+  useEffect(() => {
+    if (view.phase === 'victory' || view.phase === 'defeat') saveBestScore(view.score)
+  }, [saveBestScore, view.phase, view.score])
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
   useEffect(() => {
     let cancelled = false
     void loadTracks().then(rows => {
@@ -344,12 +362,12 @@ function App() {
     window.addEventListener('pagehide', onUnload)
     return () => { cancelled = true; window.removeEventListener('pagehide', onUnload); engineRef.current?.pause() }
   }, [])
-  const sceneFor = (g: Game): TrackKey => {
+  const sceneFor = useCallback((g: Game): TrackKey => {
     if (g.phase === 'ready' || g.phase === 'victory' || g.phase === 'defeat') return 'menu'
     if (g.boss) return 'boss'
     return 'waves'
-  }
-  const playScene = (requested: TrackKey) => {
+  }, [])
+  const playScene = useCallback((requested: TrackKey) => {
     const engine = engineRef.current!
     activeSceneRef.current = requested
     if (!engine.has(requested)) { engine.pause(); setMusicPlaying(false); setActiveMusic(null); return }
@@ -359,7 +377,7 @@ function App() {
       setMusicPlaying(false)
       setMusicNotice('El navegador bloqueó el audio automático: pulsa PLAY o inicia una partida.')
     })
-  }
+  }, [])
   const importMusic = (key: TrackKey, file?: File) => {
     if (!file) return
     if (!file.type.startsWith('audio/') && !/\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name)) {
@@ -425,8 +443,9 @@ function App() {
       setMusicNotice('API opcional desconectada. El videojuego funciona normalmente en modo local.')
     })
   }
-  const start = (skipToBoss = false, mode: GameMode = 'story') => {
+  const start = useCallback((skipToBoss = false, mode: GameMode = 'story') => {
     const g = freshGame(mode)
+    setLastMode(mode)
     g.phase = 'playing'; g.elapsed = 0; g.lastTime = 0; g.announceUntil = 2.8
     if (skipToBoss) {
       g.wave = 3; g.enemies = []; g.boss = { x: W / 2, y: 174, hp: 45, max: 45, dir: 1, mode: 1, nextVolley: 2.7, intro: 2.3, poseUntil: 0 }
@@ -436,15 +455,55 @@ function App() {
     gameRef.current = g; setShowReport(false); publish(); userStoppedMusicRef.current = false; playScene(sceneFor(g))
     if (apiConnectedRef.current) void fetch('http://127.0.0.1:3001/api/reset', { method: 'POST' }).catch(() => { apiConnectedRef.current = false; setApiConnected(false) })
     note(620, .17)
-  }
+  }, [note, playScene, publish, sceneFor, setLastMode])
 
-  const pause = () => {
+  const pause = useCallback(() => {
     const g = gameRef.current
     if (g.phase === 'playing') { g.phase = 'paused'; engineRef.current?.pause(); setMusicPlaying(false) }
     else if (g.phase === 'paused') { g.phase = 'playing'; g.lastTime = 0; if (!userStoppedMusicRef.current) playScene(sceneFor(g)) }
     publish()
-  }
-  const usePulse = useCallback(() => {
+  }, [playScene, publish, sceneFor])
+  const pauseIfPlaying = useCallback(() => {
+    const g = gameRef.current
+    g.keys.clear()
+    if (g.phase !== 'playing') return
+    g.phase = 'paused'; engineRef.current?.pause(); setMusicPlaying(false); publish()
+  }, [publish])
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (!document.fullscreenElement && shellRef.current) await shellRef.current.requestFullscreen()
+      else if (document.exitFullscreen) await document.exitFullscreen()
+    } catch {
+      setIsFullscreen(false)
+    }
+  }, [])
+  const requestStart = useCallback((skipToBoss = false, mode: GameMode = 'story') => {
+    const phase = gameRef.current.phase
+    if (phase === 'playing' || phase === 'paused') {
+      if (phase === 'playing') pause()
+      setPendingAction({ type: 'start', skipToBoss, mode })
+      return
+    }
+    start(skipToBoss, mode)
+  }, [pause, start])
+  const requestExit = useCallback(() => {
+    const phase = gameRef.current.phase
+    if (phase === 'playing' || phase === 'paused') {
+      if (phase === 'playing') pause()
+      setPendingAction({ type: 'exit' })
+      return
+    }
+    navigate('/')
+  }, [navigate, pause])
+  const confirmPending = useCallback(() => {
+    const action = pendingAction
+    setPendingAction(null)
+    if (!action) return
+    if (action.type === 'exit') navigate('/')
+    else start(action.skipToBoss, action.mode)
+  }, [navigate, pendingAction, start])
+  const cancelPending = useCallback(() => setPendingAction(null), [])
+  const triggerPulse = useCallback(() => {
     const g = gameRef.current
     if (g.phase !== 'playing' || g.pulse < 100) return
     g.pulse = 0; g.flash = 2; g.shake = 9
@@ -461,16 +520,25 @@ function App() {
     const onDown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase()
       if (['arrowleft', 'arrowright', 'arrowup', ' ', 'shift'].includes(key) && ['playing', 'paused'].includes(gameRef.current.phase)) event.preventDefault()
-      if ((key === 'p' || key === 'escape') && !event.repeat) pause()
-      if (key === 'enter' && !event.repeat && ['ready', 'victory', 'defeat'].includes(gameRef.current.phase)) start()
-      if (key === 'e' && !event.repeat) usePulse()
+      if ((key === 'p' || key === 'escape') && !event.repeat) {
+        if (pendingAction) { setPendingAction(null); return }
+        pause()
+      }
+      if (key === 'f' && !event.repeat) { event.preventDefault(); void toggleFullscreen() }
+      if (key === 'enter' && !event.repeat && ['ready', 'victory', 'defeat'].includes(gameRef.current.phase)) requestStart()
+      if (key === 'e' && !event.repeat) triggerPulse()
       gameRef.current.keys.add(key)
     }
     const onUp = (event: KeyboardEvent) => gameRef.current.keys.delete(event.key.toLowerCase())
-    const onBlur = () => { gameRef.current.keys.clear(); if (gameRef.current.phase === 'playing') { gameRef.current.phase = 'paused'; engineRef.current?.pause(); setMusicPlaying(false); publish() } }
+    const onBlur = () => pauseIfPlaying()
+    const onVisibility = () => { if (document.hidden) pauseIfPlaying() }
     window.addEventListener('keydown', onDown); window.addEventListener('keyup', onUp); window.addEventListener('blur', onBlur)
-    return () => { window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); window.removeEventListener('blur', onBlur) }
-  }, [publish, usePulse])
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); window.removeEventListener('blur', onBlur)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [pause, pauseIfPlaying, pendingAction, requestStart, toggleFullscreen, triggerPulse])
   useEffect(() => {
     const cvs = canvasRef.current; const ctx = cvs?.getContext('2d')
     if (!ctx) return
@@ -703,8 +771,7 @@ function App() {
     const scene = sceneFor(gameRef.current)
     if (activeSceneRef.current !== scene) playScene(scene)
     // Scene follows game phase / wave / boss transformations. Track selection stays local.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view.phase, view.wave, view.bossMode, view.mode])
+  }, [playScene, sceneFor, view.phase, view.wave, view.bossMode, view.mode])
   const phaseOver = view.phase === 'ready' || view.phase === 'paused' || view.phase === 'victory' || view.phase === 'defeat'
   const result = view.phase === 'victory'
   const toggleSound = () => setSoundOn(old => { soundRef.current = !old; return !old })
@@ -714,22 +781,22 @@ function App() {
     { key: 'A' as const, name: 'Disponibilidad', amount: view.statuses.A, desc: 'Servicios imaginarios dejan de estar disponibles.' },
   ]
   return <div className="app-shell" ref={shellRef} style={{'--beat-hue': '265', '--beat-strength': '0', '--beat-opacity': '.09', '--beat-glow': '7px'} as CSSProperties}>
-    <header className="topbar"><div className="topbar-content"><div className="brand"><span className="brand-icon">◆</span><span>CYBER<span>INVADERS</span><small>OPERATION: INFINITE PULSE · v0.5</small></span></div><div className="top-right"><span className="pill pill-green"><i className="status-dot"/> SAFE SIMULATION</span><button className={`pill pill-server api-toggle ${apiConnected ? 'connected' : ''}`} onClick={checkApi} title="API opcional. Haz clic para comprobar conexión con Express en el puerto 3001."><i className="status-dot"/> {apiConnected ? 'API CONECTADA' : 'MODO LOCAL · CONECTAR API'}</button></div></div></header>
+    <header className="topbar"><div className="topbar-content"><div className="brand"><span className="brand-icon">◆</span><span>CYBER<span>INVADERS</span><small>OPERATION: INFINITE PULSE · v0.5</small></span></div><div className="top-right"><span className="pill pill-green"><i className="status-dot"/> SAFE SIMULATION</span><button className={`pill pill-server api-toggle ${apiConnected ? 'connected' : ''}`} onClick={checkApi} title="API opcional. Haz clic para comprobar conexión con Express en el puerto 3001."><i className="status-dot"/> {apiConnected ? 'API CONECTADA' : 'MODO LOCAL · CONECTAR API'}</button><button type="button" className="pill exit-game" onClick={requestExit} title="Salir del juego y volver al inicio"><span aria-hidden="true">✕</span> SALIR</button></div></div></header>
     <main className="main-container"><section className="hero"><div><div className="breadcrumb"><span className="small-square"/> SEGURIDAD INFORMÁTICA <span className="slash">/</span> OPERACIÓN CIA</div><h1>THE SYSTEM <span>IS UNDER ATTACK<span className="blink-dot">_</span></span></h1><p>Un arcade de combate que convierte la tríada CIA en una experiencia épica. Derriba las defensas del sistema y enfréntate a <b>TUX</b>.</p></div><div className="mission-id"><span>CLASIFICACIÓN</span><strong>TOP SECRET</strong><small>LAB // 2026</small></div></section>
     <div className="layout"><section className="game-panel"><div className="panel-heading"><span><i className="status-dot"/> LIVE COMBAT FEED <span className="faint">/ 900×548</span></span><div className="mission-tag">{view.bossHp !== null ? '⚠ TUX / BOSS' : `SECTOR ${view.wave.toString().padStart(2,'0')}`}</div></div>
     <div className="hud"><div><span>SCORE</span><strong className="hud-score">{view.score.toLocaleString('en-US').padStart(6, '0')}</strong></div><div><span>VIDAS</span><strong className="hearts">{'♥'.repeat(view.lives)}<em>{'♡'.repeat(Math.max(0, 5 - view.lives))}</em></strong></div><div><span>COMBO</span><strong className={view.combo > 1 ? 'combo-active' : ''}>x{view.combo || 1}</strong></div><div><span>TIEMPO</span><strong>{timeText(view.elapsed)}</strong></div></div>
-    <div className="game-meta"><span className={view.mode === 'infinite' ? 'difficulty-danger' : ''}>{view.mode === 'infinite' ? `♾ INFINITO / AMENAZA ${view.tier + 1} · ${20 - view.kills % 20} BAJAS PARA SUBIR` : '◇ MODO HISTORIA'}</span><span>🧱 {view.bricks} BLOQUES · 🎁 {view.pickups} RECOGIDOS</span></div>
+    <div className="game-meta"><span className={view.mode === 'infinite' ? 'difficulty-danger' : ''}>{view.mode === 'infinite' ? `♾ INFINITO / AMENAZA ${view.tier + 1} · ${20 - view.kills % 20} BAJAS PARA SUBIR` : '◇ MODO HISTORIA'}</span><span>🧱 {view.bricks} BLOQUES · 🎁 {view.pickups} RECOGIDOS</span><span>🏆 RÉCORD {bestScore.toLocaleString('en-US')} · ÚLTIMO {lastMode === 'infinite' ? 'INFINITO' : 'HISTORIA'}</span></div>
     <div className="chroma-strip" aria-hidden="true"/><div className="canvas-shell"><canvas width={W} height={H} ref={canvasRef} aria-label="Cyber Invaders: juego de disparos espaciales con enemigos que representan la tríada CIA"/>
       {phaseOver && <div className="game-overlay"><div className="overlay-content"><span className="overlay-kicker">{view.phase === 'ready' ? '◈ INICIANDO OPERACIÓN' : view.phase === 'paused' ? '◈ SIMULACIÓN DETENIDA' : result ? '◈ OPERACIÓN COMPLETADA' : '◈ SESIÓN FINALIZADA'}</span>
         <h2 className={result ? 'panic' : ''}>{view.phase === 'ready' ? <>CYBER <span>INVADERS</span></> : view.phase === 'paused' ? 'PAUSA TÁCTICA' : result ? 'KERNEL PANIC' : 'GAME OVER'}</h2>
         <p>{view.phase === 'ready' ? 'Historia: dos oleadas y Tux. Infinito: cada 20 enemigos aumenta el peligro; Tux vuelve cada 4 oleadas.' : view.phase === 'paused' ? 'El campo de batalla está en pausa.' : result ? 'TUX ha sido derrotado. Colapso del sistema SIMULADO: ningún recurso real fue alterado.' : 'Tu nave fue eliminada. El laboratorio sigue seguro.'}</p>
-        <div className="overlay-buttons"><button className="cta" onClick={() => view.phase === 'paused' ? pause() : start()}>{view.phase === 'paused' ? '▶ CONTINUAR' : view.phase === 'ready' ? '▶ INICIAR MISIÓN' : '↻ JUGAR DE NUEVO'}</button>{view.phase === 'ready' && <button className="ghost" onClick={() => start(true)}>🐧 DEMO: JEFE FINAL</button>}<button className="infinite-btn" onClick={() => start(false, 'infinite')}>♾ MODO INFINITO</button>{['victory','defeat'].includes(view.phase) && <button className="ghost" onClick={() => setShowReport(true)}>▤ VER INFORME CIA</button>}</div>
+        <div className="overlay-buttons"><button className="cta" onClick={() => view.phase === 'paused' ? pause() : requestStart()}>{view.phase === 'paused' ? '▶ CONTINUAR' : view.phase === 'ready' ? '▶ INICIAR MISIÓN' : '↻ JUGAR DE NUEVO'}</button>{view.phase === 'ready' && <button className="ghost" onClick={() => requestStart(true)}>🐧 DEMO: JEFE FINAL</button>}<button className="infinite-btn" onClick={() => requestStart(false, 'infinite')}>♾ MODO INFINITO</button>{['victory','defeat'].includes(view.phase) && <button className="ghost" onClick={() => setShowReport(true)}>▤ VER INFORME CIA</button>}</div>
         <small>{view.phase === 'ready' ? 'ENTER PARA COMENZAR · P PARA PAUSAR' : result ? 'SIMULACIÓN DIDÁCTICA • SIN DAÑO REAL · PRUEBA MODO INFINITO' : 'CYBER INVADERS / SECURITY LAB'}</small>
       </div></div>}
     </div>
     <div className="skillbar"><div className="skill"><div className="skill-title"><span>◈ PULSO EMP</span><b>{Math.floor(view.pulse)}%</b></div><div className="skill-track"><div className="skill-charge" style={{ width: `${view.pulse}%` }}/></div><small>{view.pulse >= 100 ? 'LISTO • PRESIONA E' : 'ELIMINA ENEMIGOS PARA CARGAR'}</small></div><div className="skill"><div className="skill-title"><span>◇ ESCUDO</span><b>{Math.floor(view.shield)}%</b></div><div className="skill-track"><div className="shield-charge" style={{ width: `${view.shield}%` }}/></div><small>ABSORBE IMPACTOS AUTOMÁTICAMENTE</small></div><div className="skill dash-skill"><div className="skill-title"><span>↗ DASH</span><b>{view.dashReady === 0 ? 'LISTO' : `${view.dashReady.toFixed(1)}s`}</b></div><small>SHIFT + MOVIMIENTO</small></div></div>
     <div className="power-status"><span>🎁 POWERUPS ALEATORIOS:</span><span className={view.tripleActive ? 'power-active' : ''}>TRIPLE {view.tripleActive ? '● ACTIVO' : '○'}</span><span className={view.rapidActive ? 'power-active' : ''}>TURBO {view.rapidActive ? '● ACTIVO' : '○'}</span><span className={view.plasmaActive ? 'power-active' : ''}>PLASMA {view.plasmaActive ? '●' : '○'}</span><span className={view.burstActive ? 'power-active' : ''}>BURST x5 {view.burstActive ? '●' : '○'}</span><span>🧱 MUROS DESTRUCTIBLES</span></div>
-    <div className="button-row"><button className="button-primary" onClick={() => start()}>↻ NUEVA PARTIDA</button><button onClick={pause} disabled={view.phase !== 'playing' && view.phase !== 'paused'}>{view.phase === 'paused' ? '▶ REANUDAR' : 'Ⅱ PAUSAR'}</button><button onClick={toggleSound}>{soundOn ? '♫ SONIDO ON' : '♪ SONIDO OFF'}</button><button onClick={() => setShowReport(true)}>▤ INFORME</button><button className="infinite-btn" onClick={() => start(false, 'infinite')}>♾ INFINITO</button></div>
+    <div className="button-row"><button className="button-primary" onClick={() => requestStart()}>↻ NUEVA PARTIDA</button><button onClick={pause} disabled={view.phase !== 'playing' && view.phase !== 'paused'}>{view.phase === 'paused' ? '▶ REANUDAR' : 'Ⅱ PAUSAR'}</button><button onClick={toggleSound}>{soundOn ? '♫ SONIDO ON' : '♪ SONIDO OFF'}</button><button onClick={() => setShowReport(true)}>▤ INFORME</button><button onClick={() => void toggleFullscreen()}>{isFullscreen ? '⤢ SALIR FULLSCREEN (F)' : '⛶ PANTALLA COMPLETA (F)'}</button><button className="infinite-btn" onClick={() => requestStart(false, 'infinite')}>♾ INFINITO</button></div>
     <section className="music-studio" aria-label="DJ Cyber: música local sincronizada">
       <div className="music-studio-header"><div><strong>♫ DJ CYBER / CHROMA BEAT</strong><small>Importa canciones desde tu PC. Cambian por fase y se repiten en bucle. No se envían al servidor.</small></div><span className={`music-state ${musicPlaying ? 'on' : ''}`}>{musicPlaying ? '● PLAYING' : '○ EN ESPERA'}</span></div>
       <div className="music-live"><div className="music-live-info"><span>PISTA ACTIVA</span><b>{activeMusic ? (musicNames[activeMusic] ?? 'SIN PISTA') : 'SIN PISTA PARA ESTA FASE'}</b></div><div className="music-beat"><div className="music-meter"><span style={{width:`${Math.min(100,view.musicEnergy*140)}%`}}/></div><small>{syncEnabled ? `♪ ${view.beatCount} golpes · CHROMA COLOR ACTIVO` : 'SINCRONIZACIÓN DESACTIVADA'}</small></div><button type="button" onClick={toggleMusic} disabled={!Object.keys(musicNames).length}>{musicPlaying ? 'Ⅱ PAUSA' : '▶ PLAY'}</button><label className="music-volume">VOL <input aria-label="Volumen musical" type="range" min="0" max="1" step="0.05" value={musicVolume} onChange={event=>setVolume(Number(event.target.value))}/></label></div>
@@ -737,8 +804,8 @@ function App() {
       <div className="music-tracks">{TRACK_SLOTS.map(slot => <div className="music-track" key={slot.key}><div><b>{slot.label}</b><small title={musicNames[slot.key] ?? ''}>{musicNames[slot.key] ?? `Sugerencia: ${slot.suggested} · importa tu archivo`}</small></div><label className="file-music" tabIndex={0}>+ IMPORTAR<input type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac" onChange={e=>{importMusic(slot.key,e.target.files?.[0]); e.target.value=''}}/></label>{musicNames[slot.key] && <button type="button" title="Escuchar esta pista" onClick={()=>{ userStoppedMusicRef.current=false; void engineRef.current?.play(slot.key).then(ok=>{setMusicPlaying(!!ok);setActiveMusic(slot.key)}).catch(()=>setMusicNotice('Pulsa PLAY para activar el audio.'))}}>▶</button>}{musicNames[slot.key] && <button type="button" title="Quitar la pista" onClick={()=>removeMusic(slot.key)}>✕</button>}</div>)}</div>
       <small className="music-notice">{musicNotice} Los archivos se guardan en este navegador mediante IndexedDB cuando esté disponible.</small>
     </section>
-    <div className="control-guide"><span>MOVER <kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd></span><span>DISPARAR <kbd>ESPACIO</kbd></span><span>ESCUDO <kbd>AUTO</kbd></span><span>PULSO <kbd>E</kbd></span><span>DASH <kbd>SHIFT</kbd></span><span>PAUSA <kbd>P</kbd></span><span>LOOT <kbd>RECOGER</kbd></span></div>
-    <div className="touch-pad"><button aria-label="Mover a la izquierda" onPointerDown={e => { e.preventDefault(); gameRef.current.keys.add('a') }} onPointerUp={() => gameRef.current.keys.delete('a')} onPointerLeave={() => gameRef.current.keys.delete('a')} onPointerCancel={() => gameRef.current.keys.delete('a')}>◀</button><button aria-label="Mover a la derecha" onPointerDown={e => { e.preventDefault(); gameRef.current.keys.add('d') }} onPointerUp={() => gameRef.current.keys.delete('d')} onPointerLeave={() => gameRef.current.keys.delete('d')} onPointerCancel={() => gameRef.current.keys.delete('d')}>▶</button><button className="fire" onPointerDown={e => { e.preventDefault(); gameRef.current.keys.add(' ') }} onPointerUp={() => gameRef.current.keys.delete(' ')} onPointerLeave={() => gameRef.current.keys.delete(' ')} onPointerCancel={() => gameRef.current.keys.delete(' ')}>◎ FUEGO</button><button onClick={usePulse}>◈ EMP</button></div>
+    <div className="control-guide"><span>MOVER <kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd></span><span>DISPARAR <kbd>ESPACIO</kbd></span><span>ESCUDO <kbd>AUTO</kbd></span><span>PULSO <kbd>E</kbd></span><span>DASH <kbd>SHIFT</kbd></span><span>PAUSA <kbd>P</kbd></span><span>FULLSCREEN <kbd>F</kbd></span><span>LOOT <kbd>RECOGER</kbd></span></div>
+    <div className="touch-pad"><button aria-label="Mover a la izquierda" onPointerDown={e => { e.preventDefault(); gameRef.current.keys.add('a') }} onPointerUp={() => gameRef.current.keys.delete('a')} onPointerLeave={() => gameRef.current.keys.delete('a')} onPointerCancel={() => gameRef.current.keys.delete('a')}>◀</button><button aria-label="Mover a la derecha" onPointerDown={e => { e.preventDefault(); gameRef.current.keys.add('d') }} onPointerUp={() => gameRef.current.keys.delete('d')} onPointerLeave={() => gameRef.current.keys.delete('d')} onPointerCancel={() => gameRef.current.keys.delete('d')}>▶</button><button className="fire" onPointerDown={e => { e.preventDefault(); gameRef.current.keys.add(' ') }} onPointerUp={() => gameRef.current.keys.delete(' ')} onPointerLeave={() => gameRef.current.keys.delete(' ')} onPointerCancel={() => gameRef.current.keys.delete(' ')}>◎ FUEGO</button><button onClick={triggerPulse}>◈ EMP</button></div>
     </section>
     <aside className="sidebar"><section className="side-card threat-card"><div className="card-heading"><span>◈ ANÁLISIS DE AMENAZAS</span><span className="realtime"><i className="status-dot"/> LIVE</span></div><p>Impacto de los ataques sobre los tres pilares de la seguridad.</p>
     {report.map(item => <div className="cia" key={item.key}><div className="cia-row"><span className={`cia-symbol symbol-${item.key}`}>{item.key}</span><div><strong>{item.name}</strong><small>{item.desc}</small></div><b>{Math.round(item.amount)}%</b></div><div className="cia-track"><span className={`cia-bar bar-${item.key}`} style={{ width: `${item.amount}%` }}/></div><div className="cia-meta"><span>{item.amount === 100 ? '● ÍNTEGRO' : item.amount > 0 ? '⚠ COMPROMETIDO' : '✕ COLAPSADO'}</span><span>SIMULADO</span></div></div>)}
@@ -747,7 +814,8 @@ function App() {
     <section className="side-card terminal-panel"><div className="card-heading"><span>›_ EVENTOS DE SEGURIDAD</span><span className="terminal-live">TERMINAL</span></div><div className="terminal-window"><div className="terminal-dots"><i/><i/><i/><span>cyber@simulator:~</span></div><div className="log-area">{view.logs.map((line, index) => <div className={index === 0 ? 'recent' : ''} key={`${line}-${index}`}><span>›</span> {line}</div>)}</div><div className="cursor-line">cyber@lab:~$ <span>▌</span></div></div></section>
     <section className="tip-card"><span>ⓘ MODO SEGURO</span><p>Todos los incidentes, el colapso de Linux y el Kernel Panic son <b>representaciones ficticias</b>. No se ejecutan comandos del sistema operativo.</p></section></aside></div>
     <footer><span>◈ CYBER INVADERS</span><span>PROYECTO EDUCATIVO · TRÍADA CIA · REACT + NODE</span><span>SIMULATION BUILD 0.5 · INFINITE PULSE</span></footer></main>
-    {showReport && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setShowReport(false) }}><section className="report-modal" role="dialog" aria-modal="true" aria-label="Informe de seguridad CIA"><div className="report-heading"><div><small>REPORTE POST MISIÓN // LABORATORIO</small><h2>INFORME DE SEGURIDAD</h2></div><button onClick={() => setShowReport(false)} aria-label="Cerrar informe">✕</button></div><p>Resumen de efectos <strong>simulados</strong> en el entorno ficticio. No representa análisis ni alteración de tu sistema operativo real.</p><div className="report-kpis"><div><small>PUNTUACIÓN</small><strong>{view.score.toLocaleString('en-US')}</strong></div><div><small>OBJETIVOS DESTRUIDOS</small><strong>{view.kills}</strong></div><div><small>PRECISIÓN</small><strong>{getAccuracy(view)}%</strong></div><div><small>TIEMPO</small><strong>{timeText(view.elapsed)}</strong></div><div><small>POWERUPS RECOGIDOS</small><strong>{view.pickups}</strong></div><div><small>MODO</small><strong>{view.mode === 'infinite' ? `INFINITO ${view.tier + 1}` : 'HISTORIA'}</strong></div><div><small>OLEADA</small><strong>{view.wave}</strong></div></div>{report.map(item => <div className="report-line" key={item.key}><div><span style={{ color: COLORS[item.key] }}>{item.key} — {item.name}</span><b>{Math.round(item.amount)}% protegido</b></div><small>{item.desc}</small></div>)}<div className="report-conclusion">{result ? 'RESULTADO: TUX DERROTADO / KERNEL PANIC SIMULADO / DISPONIBILIDAD 0%' : 'RESULTADO: ESTADO ACTUAL DEL LABORATORIO SIMULADO'}</div><button className="cta close-report" onClick={() => setShowReport(false)}>CERRAR INFORME</button></section></div>}
+    {showReport && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setShowReport(false) }}><section className="report-modal" role="dialog" aria-modal="true" aria-label="Informe de seguridad CIA"><div className="report-heading"><div><small>REPORTE POST MISIÓN // LABORATORIO</small><h2>INFORME DE SEGURIDAD</h2></div><button onClick={() => setShowReport(false)} aria-label="Cerrar informe">✕</button></div><p>Resumen de efectos <strong>simulados</strong> en el entorno ficticio. No representa análisis ni alteración de tu sistema operativo real.</p><div className="report-kpis"><div><small>PUNTUACIÓN</small><strong>{view.score.toLocaleString('en-US')}</strong></div><div><small>OBJETIVOS DESTRUIDOS</small><strong>{view.kills}</strong></div><div><small>PRECISIÓN</small><strong>{getAccuracy(view)}%</strong></div><div><small>TIEMPO</small><strong>{timeText(view.elapsed)}</strong></div><div><small>POWERUPS RECOGIDOS</small><strong>{view.pickups}</strong></div><div><small>MODO</small><strong>{view.mode === 'infinite' ? `INFINITO ${view.tier + 1}` : 'HISTORIA'}</strong></div><div><small>OLEADA</small><strong>{view.wave}</strong></div><div><small>RÉCORD</small><strong>{bestScore.toLocaleString('en-US')}</strong></div></div>{report.map(item => <div className="report-line" key={item.key}><div><span style={{ color: COLORS[item.key] }}>{item.key} — {item.name}</span><b>{Math.round(item.amount)}% protegido</b></div><small>{item.desc}</small></div>)}<div className="report-conclusion">{result ? 'RESULTADO: TUX DERROTADO / KERNEL PANIC SIMULADO / DISPONIBILIDAD 0%' : 'RESULTADO: ESTADO ACTUAL DEL LABORATORIO SIMULADO'}</div><button className="cta close-report" onClick={() => setShowReport(false)}>CERRAR INFORME</button></section></div>}
+    {pendingAction && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) cancelPending() }}><section className="report-modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title"><div className="report-heading"><div><small>PARTIDA EN CURSO // CONFIRMACIÓN</small><h2 id="confirm-title">{pendingAction.type === 'exit' ? 'SALIR DE LA PARTIDA' : 'REINICIAR PARTIDA'}</h2></div><button onClick={cancelPending} aria-label="Cancelar y cerrar">✕</button></div><p>{pendingAction.type === 'exit' ? 'La simulación se pausará y volverás al inicio. El progreso de esta partida no se guardará.' : 'La partida actual se reiniciará desde cero. El mejor puntaje guardado se conservará.'}</p><div className="confirm-actions"><button className="ghost" onClick={cancelPending}>CANCELAR</button><button className="cta" onClick={confirmPending}>{pendingAction.type === 'exit' ? 'SALIR AL INICIO' : 'REINICIAR'}</button></div></section></div>}
   </div>
 }
 export default App

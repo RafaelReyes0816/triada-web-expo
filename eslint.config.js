@@ -6,7 +6,12 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['**/dist', '**/node_modules', '**/coverage']),
+  globalIgnores([
+    '**/dist',
+    '**/node_modules',
+    '**/coverage',
+    'Cyber-Invaders-v0.5-INFINITE-PULSE/**',
+  ]),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

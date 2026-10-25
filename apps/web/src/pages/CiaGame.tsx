@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, CheckCircle2, RefreshCw, Shield, XCircle } from 'lucide-react'
+import { useBestScore, usePersistentState } from '../hooks/usePersistentState'
 import styles from './CiaGame.module.css'
 
 type Pillar = 'confidencialidad' | 'integridad' | 'disponibilidad'
@@ -14,6 +15,20 @@ type Question = {
     pillar: Pillar
   }[]
   explanation: string
+}
+
+type QuizProgress = {
+  currentIndex: number
+  answers: Record<number, Pillar>
+  showFeedback: boolean
+  finished: boolean
+}
+
+const initialProgress: QuizProgress = {
+  currentIndex: 0,
+  answers: {},
+  showFeedback: false,
+  finished: false,
 }
 
 const questions: Question[] = [
@@ -86,36 +101,38 @@ const questions: Question[] = [
   },
 ]
 
-
-
 export default function CiaGame() {
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [answers, setAnswers] = useState<Record<number, Pillar>>({})
-  const [showFeedback, setShowFeedback] = useState(false)
-  const [finished, setFinished] = useState(false)
-
+  const [storedProgress, setProgress] = usePersistentState<QuizProgress>(
+    'triada:quiz:progreso',
+    initialProgress,
+  )
+  const progress =
+    storedProgress &&
+    typeof storedProgress === 'object' &&
+    storedProgress.answers &&
+    typeof storedProgress.answers === 'object'
+      ? storedProgress
+      : initialProgress
+  const [bestScore, saveBestScore] = useBestScore('triada:quiz:mejor-puntaje')
+  const storedIndex = Number(progress.currentIndex)
+  const currentIndex = Number.isFinite(storedIndex)
+    ? Math.min(Math.max(Math.trunc(storedIndex), 0), questions.length - 1)
+    : 0
   const currentQuestion = questions[currentIndex]
-  const selected = answers[currentQuestion.id]
-
-  const resolvedCorrect =
-    currentQuestion.options.find((o) => {
-      if (currentQuestion.id === 1) return o.pillar === 'confidencialidad'
-      if (currentQuestion.id === 2) return o.pillar === 'integridad'
-      if (currentQuestion.id === 3) return o.pillar === 'disponibilidad'
-      if (currentQuestion.id === 4) return o.pillar === 'confidencialidad'
-      if (currentQuestion.id === 5) return o.pillar === 'integridad'
-      if (currentQuestion.id === 6) return o.pillar === 'disponibilidad'
-      return o.letter === 'A'
-    })?.pillar ?? currentQuestion.options[0].pillar
-
+  const selected = progress.answers[currentQuestion.id]
+  const resolvedCorrect = getCorrectPillar(currentQuestion)
   const isCorrect = selected === resolvedCorrect
 
   const score = useMemo(() => {
     return questions.reduce((acc, q) => {
-      if (answers[q.id] === getCorrectPillar(q)) acc += 1
+      if (progress.answers[q.id] === getCorrectPillar(q)) acc += 1
       return acc
     }, 0)
-  }, [answers])
+  }, [progress.answers])
+
+  useEffect(() => {
+    if (progress.finished) saveBestScore(score)
+  }, [progress.finished, saveBestScore, score])
 
   function getCorrectPillar(q: Question): Pillar {
     if (q.id === 1 || q.id === 4) return 'confidencialidad'
@@ -125,28 +142,31 @@ export default function CiaGame() {
   }
 
   const handleSelect = (pillar: Pillar) => {
-    if (showFeedback) return
-    setAnswers((prev) => ({ ...prev, [currentQuestion.id]: pillar }))
-    setShowFeedback(true)
+    if (progress.showFeedback) return
+    setProgress({
+      ...progress,
+      answers: { ...progress.answers, [currentQuestion.id]: pillar },
+      showFeedback: true,
+    })
   }
 
   const goNext = () => {
     if (currentIndex === questions.length - 1) {
-      setFinished(true)
+      setProgress({ ...progress, finished: true })
       return
     }
-    setCurrentIndex((prev) => prev + 1)
-    setShowFeedback(false)
+    setProgress({
+      ...progress,
+      currentIndex: currentIndex + 1,
+      showFeedback: false,
+    })
   }
 
   const restart = () => {
-    setCurrentIndex(0)
-    setAnswers({})
-    setShowFeedback(false)
-    setFinished(false)
+    setProgress({ ...initialProgress, answers: {} })
   }
 
-  if (finished) {
+  if (progress.finished) {
     return (
       <div className={styles.gameContainer}>
         <div className={styles.resultCard}>
@@ -164,6 +184,7 @@ export default function CiaGame() {
             {score >= Math.ceil(questions.length / 2) && score < questions.length - 1 && 'Buen trabajo. Repasa un poco los conceptos.'}
             {score < Math.ceil(questions.length / 2) && 'Sigue practicando para dominar la tríada CIA.'}
           </p>
+          <p className={styles.bestScore}>Mejor resultado guardado: {bestScore} / {questions.length}</p>
           <div className={styles.resultActions}>
             <button onClick={restart} className={styles.actionBtnPrimary}>
               <RefreshCw size={18} /> Jugar de nuevo
@@ -180,18 +201,46 @@ export default function CiaGame() {
   return (
     <div className={styles.gameContainer}>
       <header className={styles.gameHeader}>
-        <Link to="/" className={styles.backLink}>
-          <ArrowLeft size={18} /> Inicio
-        </Link>
-        <div className={styles.progressInfo}>
-          <span>
-            Pregunta {currentIndex + 1} / {questions.length}
-          </span>
-        </div>
-        <div className={styles.pillarLegend}>
-          <span style={{ color: '#60a5fa' }}>C</span> Confidencialidad ·{' '}
-          <span style={{ color: '#22d3ee' }}>I</span> Integridad ·{' '}
-          <span style={{ color: '#34d399' }}>D</span> Disponibilidad
+        <div className={styles.headerInner}>
+          <Link to="/" className={styles.backLink}>
+            <ArrowLeft size={18} /> Inicio
+          </Link>
+          <div className={styles.progressInfo}>
+            <div className={styles.progressText}>
+              <span>
+                Pregunta {currentIndex + 1} de {questions.length}
+              </span>
+              <span className={styles.progressPercent}>
+                {Math.round(((currentIndex + 1) / questions.length) * 100)}%
+              </span>
+            </div>
+            <div
+              className={styles.progressTrack}
+              role="progressbar"
+              aria-label="Progreso del quiz"
+              aria-valuemin={1}
+              aria-valuemax={questions.length}
+              aria-valuenow={currentIndex + 1}
+            >
+              <span
+                style={{ width: `${((currentIndex + 1) / questions.length) * 100}%` }}
+              />
+            </div>
+          </div>
+          <div className={styles.pillarLegend} aria-label="Pilares de la tríada CIA">
+            <span className={styles.legendItem}>
+              <i className={`${styles.legendDot} ${styles.legendC}`} />
+              Confidencialidad
+            </span>
+            <span className={styles.legendItem}>
+              <i className={`${styles.legendDot} ${styles.legendI}`} />
+              Integridad
+            </span>
+            <span className={styles.legendItem}>
+              <i className={`${styles.legendDot} ${styles.legendD}`} />
+              Disponibilidad
+            </span>
+          </div>
         </div>
       </header>
 
@@ -204,7 +253,7 @@ export default function CiaGame() {
             {currentQuestion.options.map((option) => {
               const isSelected = selected === option.pillar
               const correct = option.pillar === resolvedCorrect
-              const showState = showFeedback
+              const showState = progress.showFeedback
 
               return (
                 <button
@@ -215,7 +264,7 @@ export default function CiaGame() {
                   } ${showState && correct ? styles.optionCorrect : ''} ${
                     showState && isSelected && !correct ? styles.optionWrong : ''
                   }`}
-                  disabled={showFeedback}
+                  disabled={progress.showFeedback}
                 >
                   <div className={styles.optionHeader}>
                     <span className={styles.optionLetter}>{option.letter}</span>
@@ -228,7 +277,7 @@ export default function CiaGame() {
             })}
           </div>
 
-          {showFeedback && (
+          {progress.showFeedback && (
             <div className={`${styles.feedbackBox} ${isCorrect ? styles.feedbackCorrect : styles.feedbackWrong}`}>
               <div className={styles.feedbackHeader}>
                 {isCorrect ? <CheckCircle2 size={24} /> : <XCircle size={24} />}

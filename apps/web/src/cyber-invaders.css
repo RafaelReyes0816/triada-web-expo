@@ -119,3 +119,13 @@
 }
 .api-toggle { font: 800 9px 'Space Mono',monospace; cursor:pointer; background:#1b142d; }
 .api-toggle:hover { border-color:#a78bfa; color:#e9d5ff; }
+.exit-game { display:inline-flex; align-items:center; gap:6px; text-decoration:none; background:#241437; border-color:#7c51be; color:#f3e8ff; }
+.exit-game:hover { border-color:#f0abfc; color:#fff; box-shadow:0 0 18px #a855f733; }
+@media(max-width:430px){ .top-right .pill-green { display:none; } .exit-game { font-size:8px; padding:8px 10px; } }
+
+.exit-game { cursor: pointer; font-family: 'Space Mono', monospace; }
+.app-shell:fullscreen { width: 100%; height: 100%; overflow: auto; }
+.confirm-modal { max-width: 470px; }
+.confirm-modal > p { margin-top: 0; color: #a9bfd2; font-size: 13px; line-height: 1.75; }
+.confirm-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+.confirm-actions button { min-width: 125px; }
